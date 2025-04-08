@@ -14,6 +14,41 @@ _MODELS = {
     "open_clip_ViT-L/14": "checkpoints/openClip_ViT-L-14.pth"
 }
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='PAC-S evaluation')
+    parser.add_argument('--clip_model', type=str, default='ViT-B/32',
+                        choices=['ViT-B/32', 'open_clip_ViT-L/14'])
+    parser.add_argument('--image_dir', type=str, default='example/images')
+    parser.add_argument('--candidates_json', type=str,
+                        default='example/good_captions.json')
+    parser.add_argument('--references_json', type=str, default='example/refs.json')
+    parser.add_argument('--compute_refpac', action='store_true')
+
+    return parser.parse_args()
+
+
+def load_clip_model(clip_model="ViT-B/32"):
+    
+    if clip_model.startswith('open_clip'):
+        print("Using Open CLIP Model: " + clip_model)
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14', pretrained='laion2b_s32b_b82k')
+    else:
+        print("Using CLIP Model: " + clip_model)
+        model, preprocess = clip.load(clip_model, device=device)
+
+    model = model.to(device)
+    model = model.float()
+
+    clip_pth = os.path.join(os.path.dirname(os.path.abspath(__file__)), _MODELS[clip_model])
+    checkpoint = torch.load(clip_pth)
+    model.load_state_dict(checkpoint['state_dict'])
+    model.eval()
+
+    return model, preprocess
+
 
 def compute_scores(model, preprocess, image_ids, candidates, references, args):
     gen = {}
@@ -62,19 +97,8 @@ def compute_scores(model, preprocess, image_ids, candidates, references, args):
 
 
 if __name__ == '__main__':
-    # Argument parsing
-    parser = argparse.ArgumentParser(description='PAC-S evaluation')
-    parser.add_argument('--clip_model', type=str, default='ViT-B/32',
-                        choices=['ViT-B/32', 'open_clip_ViT-L/14'])
-    parser.add_argument('--image_dir', type=str, default='example/images')
-    parser.add_argument('--candidates_json', type=str,
-                        default='example/good_captions.json')
-    parser.add_argument('--references_json', type=str, default='example/refs.json')
-    parser.add_argument('--compute_refpac', action='store_true')
-
-    args = parser.parse_args()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    args = parse_args()
 
     image_ids = [img_id for img_id in os.listdir(args.image_dir)]
 
@@ -88,20 +112,7 @@ if __name__ == '__main__':
 
     image_ids = [os.path.join(args.image_dir, img_id) for img_id in image_ids]
 
-    if args.clip_model.startswith('open_clip'):
-        print("Using Open CLIP Model: " + args.clip_model)
-        model, _, preprocess = open_clip.create_model_and_transforms(
-            'ViT-L-14', pretrained='laion2b_s32b_b82k')
-    else:
-        print("Using CLIP Model: " + args.clip_model)
-        model, preprocess = clip.load(args.clip_model, device=device)
-
-    model = model.to(device)
-    model = model.float()
-
-    checkpoint = torch.load(_MODELS[args.clip_model])
-    model.load_state_dict(checkpoint['state_dict'])
-    model.eval()
+    model, preprocess = load_clip_model(args.clip_model)
 
     all_scores = compute_scores(
         model, preprocess, image_ids, candidates, references, args)
